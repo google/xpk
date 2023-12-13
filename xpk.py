@@ -92,8 +92,9 @@ spec:
               schedulerName: {args.scheduler}
               restartPolicy: Never
               nodeSelector:
-                cloud.google.com/gke-tpu-accelerator: {system.gke_accelerator}
-                cloud.google.com/gke-tpu-topology: {system.topology}
+                cloud.google.com/gke-accelerator: {system.gke_accelerator}
+                cloud.google.com/gke-accelerator: {system.gce_machine_type}
+                # cloud.google.com/gke-tpu-topology: {system.topology}
               priorityClassName: {args.priority}
               hostNetwork: true
               dnsPolicy: ClusterFirstWithHostNet
@@ -251,6 +252,10 @@ IF YOU MODIFY THE BELOW UserFacingNameToSystemCharacteristics MAP YOU SHOULD ALS
 MODIFICATIONS TO UserFacingNameToSystemCharacteristics IN MaxText/accelerator_to_spec_map.py !!!!! """
 # vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 UserFacingNameToSystemCharacteristics = {
+    # H100-80gb
+    'h100-80gb-8': SystemCharacteristics(
+      'N/A', 1, 'nvidia-h100-80gb', 'a3-highgpu-8g', 8
+    ),
     # v5p
     'v5p-8': SystemCharacteristics(
       '2x2x1', 1, 'tpu-v5p-slice', 'ct5p-hightpu-4t', 4
@@ -970,8 +975,9 @@ def zone_to_region(zone) -> str:
   Returns:
      The region name.
   """
-  zone_terms = zone.split('-')
-  return zone_terms[0] + '-' + zone_terms[1]
+  return zone
+  # zone_terms = zone.split('-')
+  # return zone_terms[0] + '-' + zone_terms[1]
 
 
 def run_gke_cluster_create_command(args) -> int:
@@ -2435,13 +2441,13 @@ cluster_create_required_arguments.add_argument(
     ),
     required=True,
 )
-cluster_create_required_arguments.add_argument(
-    '--tpu-type',
-    type=str,
-    default='v5litepod-16',
-    help='The type of the TPU. v5litepod and v4 are the only supported types.',
-    required=True,
-)
+# cluster_create_required_arguments.add_argument(
+#     '--tpu-type',
+#     type=str,
+#     default='v5litepod-16',
+#     help='The type of the TPU. v5litepod and v4 are the only supported types.',
+#     required=True,
+# )
 
 # Capacity Arguments
 cluster_create_capacity_arguments.add_argument(
@@ -2715,13 +2721,13 @@ workload_create_parser_required_arguments.add_argument(
     ),
     required=True,
 )
-workload_create_parser_required_arguments.add_argument(
-    '--tpu-type',
-    type=str,
-    default=None,
-    help='The tpu type to use, v5litepod-16, etc.',
-    required=True,
-)
+# workload_create_parser_required_arguments.add_argument(
+#     '--tpu-type',
+#     type=str,
+#     default=None,
+#     help='The tpu type to use, v5litepod-16, etc.',
+#     required=True,
+# )
 workload_create_parser_required_arguments.add_argument(
     '--cluster',
     type=str,
