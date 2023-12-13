@@ -92,14 +92,28 @@ spec:
               schedulerName: {args.scheduler}
               restartPolicy: Never
               nodeSelector:
-                cloud.google.com/gke-accelerator: {system.gke_accelerator}
-                cloud.google.com/gke-accelerator: {system.gce_machine_type}
-                # cloud.google.com/gke-tpu-topology: {system.topology}
+                {node_selector}
               priorityClassName: {args.priority}
               hostNetwork: true
               dnsPolicy: ClusterFirstWithHostNet
               containers:
               {container}
+              - name: {args.docker_name}
+                image: {docker_image}
+                env: {args.env}
+                ports:
+                - containerPort: 8471
+                - containerPort: 8080
+                securityContext:
+                  privileged: true
+                command:
+                - bash
+                - -c
+                - |
+                  echo XPK Start: $(date) ; {command} ; EXIT_CODE=$? ; echo XPK End: $(date); echo EXIT_CODE=$EXIT_CODE ; sleep 5; exit $EXIT_CODE
+                resources:
+                  limits:
+                    {resource_type}: {system.chips_per_vm}
 """
 
 workload_delete_yaml = """apiVersion: jobset.x-k8s.io/v1alpha2
@@ -140,11 +154,11 @@ spec:
       withinClusterQueue: LowerPriority
   namespaceSelector: {{}} # match all.
   resourceGroups:
-  - coveredResources: ["google.com/tpu"]
+  - coveredResources: ["{resource_type}"]
     flavors:
     - name: {cluster_hardware_name}
       resources:
-      - name: "google.com/tpu"
+      - name: "{resource_type}"
         nominalQuota: {total_chips}  # Number of slices * number of chips in each slice
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
@@ -251,11 +265,14 @@ class SystemCharacteristics:
 IF YOU MODIFY THE BELOW UserFacingNameToSystemCharacteristics MAP YOU SHOULD ALSO ADD CORRESPONDING
 MODIFICATIONS TO UserFacingNameToSystemCharacteristics IN MaxText/accelerator_to_spec_map.py !!!!! """
 # vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-UserFacingNameToSystemCharacteristics = {
+GpuUserFacingNameToSystemCharacteristics = {
     # H100-80gb
     'h100-80gb-8': SystemCharacteristics(
       'N/A', 1, 'nvidia-h100-80gb', 'a3-highgpu-8g', 8
     ),
+}
+
+TpuUserFacingNameToSystemCharacteristics = {
     # v5p
     'v5p-8': SystemCharacteristics(
       '2x2x1', 1, 'tpu-v5p-slice', 'ct5p-hightpu-4t', 4
@@ -1236,7 +1253,7 @@ def run_gke_node_pool_create_command(args, system_characteristics) -> int:
   """
 
   xpk_print(
-      f'Creating {args.num_slices} node pool or pools of {args.tpu_type}\n'
+      f'Creating {args.num_slices} node pool or pools of {args.device_type}\n'
       f'Underlyingly, we assume that means: {system_characteristics}'
   )
 
@@ -1427,12 +1444,13 @@ def enable_kueue_crds(args, system) -> int:
   Returns:
     0 if successful and 1 otherwise.
   """
-  cluster_hardware_name = f'{args.num_slices}x{args.tpu_type}'
+  cluster_hardware_name = f'{args.num_slices}x{args.device_type}'
   total_chips = args.num_slices * system.vms_per_slice * system.chips_per_vm
   yml_string = cluster_set_crd_yaml.format(
       system=system,
       cluster_hardware_name=cluster_hardware_name,
       total_chips=total_chips,
+      resource_type=get_resource_type(args)
   )
   tmp = write_temporary_file(yml_string)
   command = f'kubectl apply -f {str(tmp.file.name)}'
@@ -1512,7 +1530,7 @@ def cluster_create(args) -> int:
   Returns:
     0 if successful and 1 otherwise.
   """
-  system_characteristics = UserFacingNameToSystemCharacteristics[args.tpu_type]
+  system_characteristics = get_system_characteristics(args.device_type)
 
   xpk_print(f'Starting cluster create for cluster {args.cluster}:', flush=True)
   add_zone_and_project(args)
@@ -2104,6 +2122,37 @@ def get_gke_debugging_dashboard(args):
   return dashboard_id
 
 
+def create_node_selector(args, system) -> str:
+  if args.device_type in TpuUserFacingNameToSystemCharacteristics:
+    return """cloud.google.com/gke-tpu-accelerator: {gke_accelerator}
+                cloud.google.com/gke-tpu-topology: {topology}
+    """.format(gke_accelerator=system.gke_accelerator, topology=system.topology)
+  elif args.device_type in GpuUserFacingNameToSystemCharacteristics:
+    return """cloud.google.com/gke-accelerator: {gke_accelerator}
+                cloud.google.com/gce-machine-type: {gce_machine_type}
+    """.format(gke_accelerator=system.gke_accelerator,
+               gce_machine_type=system.gce_machine_type)
+  else:
+    raise ValueError("Unknown device type")
+
+
+def get_resource_type(args) -> str:
+  if args.device_type in TpuUserFacingNameToSystemCharacteristics:
+    return "google.com/tpu"
+  elif args.device_type in GpuUserFacingNameToSystemCharacteristics:
+    return "nvidia.com/gpu"
+  else:
+    raise ValueError("Unknown device type")
+
+
+def get_system_characteristics(name):
+  if name in TpuUserFacingNameToSystemCharacteristics:
+    return TpuUserFacingNameToSystemCharacteristics[name]
+  elif name in GpuUserFacingNameToSystemCharacteristics:
+    return GpuUserFacingNameToSystemCharacteristics[name]
+  else:
+    raise ValueError("Unknown device type")
+
 def workload_create(args) -> int:
   """Run jobset apply command for a file.
 
@@ -2128,7 +2177,8 @@ def workload_create(args) -> int:
     )
     xpk_exit(1)
 
-  system = UserFacingNameToSystemCharacteristics[args.tpu_type]
+  xpk_print('Starting workload create', flush=True)
+  system = get_system_characteristics(args.device_type)
 
   if not check_if_workload_can_schedule(args, system):
     xpk_exit(1)
@@ -2158,7 +2208,9 @@ def workload_create(args) -> int:
                                            system=system,
                                            docker_image=docker_image,
                                            command=command,
-                                           container=container)
+                                           container=container,
+                                           node_selector=create_node_selector(args, system),
+                                           resource_type=get_resource_type(args))
   tmp = write_temporary_file(yml_string)
   command = f'kubectl apply -f {str(tmp.file.name)}'
 
@@ -2441,13 +2493,13 @@ cluster_create_required_arguments.add_argument(
     ),
     required=True,
 )
-# cluster_create_required_arguments.add_argument(
-#     '--tpu-type',
-#     type=str,
-#     default='v5litepod-16',
-#     help='The type of the TPU. v5litepod and v4 are the only supported types.',
-#     required=True,
-# )
+cluster_create_required_arguments.add_argument(
+    '--device-type',
+    type=str,
+    default='v5litepod-16',
+    help='The type of the TPU. v5litepod and v4 are the only supported types.',
+    required=True,
+)
 
 # Capacity Arguments
 cluster_create_capacity_arguments.add_argument(
@@ -2721,13 +2773,13 @@ workload_create_parser_required_arguments.add_argument(
     ),
     required=True,
 )
-# workload_create_parser_required_arguments.add_argument(
-#     '--tpu-type',
-#     type=str,
-#     default=None,
-#     help='The tpu type to use, v5litepod-16, etc.',
-#     required=True,
-# )
+workload_create_parser_required_arguments.add_argument(
+    '--device-type',
+    type=str,
+    default=None,
+    help='The tpu type to use, v5litepod-16, etc.',
+    required=True,
+)
 workload_create_parser_required_arguments.add_argument(
     '--cluster',
     type=str,
