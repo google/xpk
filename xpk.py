@@ -42,6 +42,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass
+from enum import Enum
 
 ################### Compatibility Check ###################
 # Check that the user runs the below version or greater.
@@ -141,8 +142,7 @@ metadata:
   name: {cluster_hardware_name}
 spec:
   nodeLabels:
-    cloud.google.com/gke-tpu-accelerator: {system.gke_accelerator}
-    cloud.google.com/gke-tpu-topology: {system.topology}
+    {nodeLabels}
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
@@ -234,7 +234,7 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             nodeSelectorTerms:
             - matchExpressions:
-              - key: cloud.google.com/gke-tpu-accelerator
+              - key: {nodeSelectorKey}
                 operator: Exists
       tolerations:
       - operator: "Exists"
@@ -253,12 +253,37 @@ data:
 """
 
 @dataclass
+class AcceleratorType(Enum):
+    TPU = 1
+    GPU = 2
+    # CPU = 3,
+
+@dataclass
+class AcceleratorCharacteristics:
+  resource_type: str
+  accelerator_label: int
+  machine_label: str
+
+AcceleratorTypeToAcceleratorCharacteristics = {
+     #tpu
+      AcceleratorType.TPU: AcceleratorCharacteristics(
+      'google.com/tpu', 'cloud.google.com/gke-tpu-accelerator', ' cloud.google.com/gke-tpu-topology'
+      ),
+     #gpu
+      AcceleratorType.GPU: AcceleratorCharacteristics(
+      'nvidia.com/gpu', 'cloud.google.com/gke-accelerator', ' cloud.google.com/gce-machine-type'
+      )
+}
+
+
+@dataclass
 class SystemCharacteristics:
   topology: str
   vms_per_slice: int
   gke_accelerator: str
   gce_machine_type: str
   chips_per_vm: int
+  accelerator_type: AcceleratorType
 
 ################### Subcommand Helper Functions #############
 """ !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -266,6 +291,19 @@ IF YOU MODIFY THE BELOW UserFacingNameToSystemCharacteristics MAP YOU SHOULD ALS
 MODIFICATIONS TO UserFacingNameToSystemCharacteristics IN MaxText/accelerator_to_spec_map.py !!!!! """
 # vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 GpuUserFacingNameToSystemCharacteristics = {
+    # A100-40gb
+    'a100-40gb-1': SystemCharacteristics(
+      'N/A', 1, 'nvidia-tesla-a100', 'a2-highgpu-1g', 1
+    ),
+    'a100-40gb-2': SystemCharacteristics(
+      'N/A', 1, 'nvidia-tesla-a100', 'a2-highgpu-2g', 2
+    ),
+    'a100-40gb-4': SystemCharacteristics(
+      'N/A', 1, 'nvidia-tesla-a100', 'a2-highgpu-4g', 4
+    ),
+    'a100-40gb-8': SystemCharacteristics(
+      'N/A', 1, 'nvidia-tesla-a100', 'a2-highgpu-8g', 8
+    ),
     # H100-80gb
     'h100-80gb-8': SystemCharacteristics(
       'N/A', 1, 'nvidia-h100-80gb', 'a3-highgpu-8g', 8
@@ -992,9 +1030,8 @@ def zone_to_region(zone) -> str:
   Returns:
      The region name.
   """
-  return zone
-  # zone_terms = zone.split('-')
-  # return zone_terms[0] + '-' + zone_terms[1]
+  zone_terms = zone.split('-')
+  return zone_terms[0] + '-' + zone_terms[1]
 
 
 def run_gke_cluster_create_command(args) -> int:
@@ -1256,7 +1293,7 @@ def run_gke_node_pool_create_command(args, system_characteristics) -> int:
       f'Creating {args.num_slices} node pool or pools of {args.device_type}\n'
       f'Underlyingly, we assume that means: {system_characteristics}'
   )
-
+  print("system_char is ", system_characteristics)
   existing_node_pool_names, return_code = get_all_nodepools_programmatic(args)
   if return_code > 0:
     xpk_print('Listing all node pools failed!')
@@ -1450,6 +1487,7 @@ def enable_kueue_crds(args, system) -> int:
       system=system,
       cluster_hardware_name=cluster_hardware_name,
       total_chips=total_chips,
+      nodeLabels=create_node_selector(args, system),
       resource_type=get_resource_type(args)
   )
   tmp = write_temporary_file(yml_string)
@@ -1531,7 +1569,7 @@ def cluster_create(args) -> int:
     0 if successful and 1 otherwise.
   """
   system_characteristics = get_system_characteristics(args.device_type)
-
+  print("sys_Char is ", system_characteristics)
   xpk_print(f'Starting cluster create for cluster {args.cluster}:', flush=True)
   add_zone_and_project(args)
 
@@ -1616,9 +1654,11 @@ def cluster_cacheimage(args) -> int:
   set_cluster_command_code = set_cluster_command(args)
   if set_cluster_command_code != 0:
     xpk_exit(set_cluster_command_code)
-
+  nodeSelectorKey = "cloud.google.com/gke-tpu-accelerator" if args.device_type in TpuUserFacingNameToSystemCharacteristics else "cloud.google.com/gke-accelerator"
   yml_string = cluster_preheat_yml.format(
-      cachekey=args.cache_key, image_name=args.docker_image
+      cachekey=args.cache_key,
+      image_name=args.docker_image,
+      nodeSelectorKey=nodeSelectorKey
   )
   tmp = write_temporary_file(yml_string)
   command_apply = f'kubectl apply -f {str(tmp.file.name)}'
@@ -2124,13 +2164,20 @@ def get_gke_debugging_dashboard(args):
 
 def create_node_selector(args, system) -> str:
   if args.device_type in TpuUserFacingNameToSystemCharacteristics:
-    return """cloud.google.com/gke-tpu-accelerator: {gke_accelerator}
-                cloud.google.com/gke-tpu-topology: {topology}
-    """.format(gke_accelerator=system.gke_accelerator, topology=system.topology)
+    ac = AcceleratorTypeToAcceleratorCharacteristics[AcceleratorType.TPU]
+    return """{accelerator_label}: {gke_accelerator}
+                {machine_label}: {topology}
+    """.format(accelerator_label=ac.accelerator_label, 
+               gke_accelerator=system.gke_accelerator,
+               machine_label=ac.machine_label,
+               topology=system.topology)
   elif args.device_type in GpuUserFacingNameToSystemCharacteristics:
-    return """cloud.google.com/gke-accelerator: {gke_accelerator}
-                cloud.google.com/gce-machine-type: {gce_machine_type}
-    """.format(gke_accelerator=system.gke_accelerator,
+    ac = AcceleratorTypeToAcceleratorCharacteristics[AcceleratorType.GPU]
+    return """{accelerator_label}: {gke_accelerator}
+                {machine_label}: {gce_machine_type}
+    """.format(accelerator_label=ac.accelerator_label, 
+               gke_accelerator=system.gke_accelerator,
+               machine_label=ac.machine_label,
                gce_machine_type=system.gce_machine_type)
   else:
     raise ValueError("Unknown device type")
@@ -2138,9 +2185,9 @@ def create_node_selector(args, system) -> str:
 
 def get_resource_type(args) -> str:
   if args.device_type in TpuUserFacingNameToSystemCharacteristics:
-    return "google.com/tpu"
+    return AcceleratorTypeToAcceleratorCharacteristics[AcceleratorType.TPU].resource_type
   elif args.device_type in GpuUserFacingNameToSystemCharacteristics:
-    return "nvidia.com/gpu"
+    return AcceleratorTypeToAcceleratorCharacteristics[AcceleratorType.GPU].resource_type
   else:
     raise ValueError("Unknown device type")
 
