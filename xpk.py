@@ -1035,8 +1035,9 @@ def zone_to_region(zone) -> str:
   Returns:
      The region name.
   """
-  zone_terms = zone.split('-')
-  return zone_terms[0] + '-' + zone_terms[1]
+  return zone
+  # zone_terms = zone.split('-')
+  # return zone_terms[0] + '-' + zone_terms[1]
 
 
 def run_gke_cluster_create_command(args) -> int:
@@ -1293,9 +1294,9 @@ def run_gke_node_pool_create_command(args, system_characteristics) -> int:
   Returns:
     0 if successful and 1 otherwise.
   """
-
+  device_type = args.tpu_type if args.tpu_type else args.gpu_type
   xpk_print(
-      f'Creating {args.num_slices} node pool or pools of {args.device_type}\n'
+      f'Creating {args.num_slices} node pool or pools of {device_type}\n'
       f'Underlyingly, we assume that means: {system_characteristics}'
   )
   print("system_char is ", system_characteristics)
@@ -1325,13 +1326,14 @@ def run_gke_node_pool_create_command(args, system_characteristics) -> int:
         f' --region={zone_to_region(args.zone)}'
         f' --num-nodes={system_characteristics.vms_per_slice}'
         f' --machine-type={system_characteristics.gce_machine_type}'
-        f' --tpu-topology={system_characteristics.topology}'
         f' --host-maintenance-interval={args.host_maintenance_interval}'
         f' {capacity_args}'
         ' --scopes=storage-full,gke-default'
         ' --enable-gvnic --max-pods-per-node 15'
         f' {args.custom_tpu_nodepool_arguments}'
     )
+    if args.tpu_type:
+      command += (f' --tpu-topology={system_characteristics.topology}')
     task = f'NodepoolCreate-{node_pool_name}'
     commands.append(command)
     task_names.append(task)
@@ -1486,7 +1488,8 @@ def enable_kueue_crds(args, system) -> int:
   Returns:
     0 if successful and 1 otherwise.
   """
-  cluster_hardware_name = f'{args.num_slices}x{args.device_type}'
+  device_type = args.tpu_type if args.tpu_type else args.gpu_type
+  cluster_hardware_name = f'{args.num_slices}x{device_type}'
   total_chips = args.num_slices * system.vms_per_slice * system.chips_per_vm
   yml_string = cluster_set_crd_yaml.format(
       system=system,
@@ -1573,7 +1576,8 @@ def cluster_create(args) -> int:
   Returns:
     0 if successful and 1 otherwise.
   """
-  system_characteristics = get_system_characteristics(args.device_type)
+  device_type = args.tpu_type if args.tpu_type else args.gpu_type
+  system_characteristics = get_system_characteristics(device_type)
   print("sys_Char is ", system_characteristics)
   xpk_print(f'Starting cluster create for cluster {args.cluster}:', flush=True)
   add_zone_and_project(args)
@@ -1659,7 +1663,7 @@ def cluster_cacheimage(args) -> int:
   set_cluster_command_code = set_cluster_command(args)
   if set_cluster_command_code != 0:
     xpk_exit(set_cluster_command_code)
-  nodeSelectorKey = "cloud.google.com/gke-tpu-accelerator" if args.device_type in TpuUserFacingNameToSystemCharacteristics else "cloud.google.com/gke-accelerator"
+  nodeSelectorKey = "cloud.google.com/gke-tpu-accelerator" if args.tpu_type else "cloud.google.com/gke-accelerator"
   yml_string = cluster_preheat_yml.format(
       cachekey=args.cache_key,
       image_name=args.docker_image,
@@ -2168,31 +2172,28 @@ def get_gke_debugging_dashboard(args):
 
 
 def create_node_selector(args, system) -> str:
-  if args.device_type in TpuUserFacingNameToSystemCharacteristics:
-    ac = AcceleratorTypeToAcceleratorCharacteristics[AcceleratorType.TPU]
+  if args.tpu_type:
+    ac = AcceleratorTypeToAcceleratorCharacteristics[AcceleratorType['TPU']]
     return """{accelerator_label}: {gke_accelerator}
                 {machine_label}: {topology}
     """.format(accelerator_label=ac.accelerator_label, 
                gke_accelerator=system.gke_accelerator,
                machine_label=ac.machine_label,
                topology=system.topology)
-  elif args.device_type in GpuUserFacingNameToSystemCharacteristics:
-    ac = AcceleratorTypeToAcceleratorCharacteristics[AcceleratorType.GPU]
+  elif args.gpu_type:
+    ac = AcceleratorTypeToAcceleratorCharacteristics[AcceleratorType['GPU']]
     return """{accelerator_label}: {gke_accelerator}
-                {machine_label}: {gce_machine_type}
     """.format(accelerator_label=ac.accelerator_label, 
-               gke_accelerator=system.gke_accelerator,
-               machine_label=ac.machine_label,
-               gce_machine_type=system.gce_machine_type)
+               gke_accelerator=system.gke_accelerator)
   else:
     raise ValueError("Unknown device type")
 
 
 def get_resource_type(args) -> str:
-  if args.device_type in TpuUserFacingNameToSystemCharacteristics:
-    return AcceleratorTypeToAcceleratorCharacteristics[AcceleratorType.TPU].resource_type
-  elif args.device_type in GpuUserFacingNameToSystemCharacteristics:
-    return AcceleratorTypeToAcceleratorCharacteristics[AcceleratorType.GPU].resource_type
+  if args.tpu_type:
+    return AcceleratorTypeToAcceleratorCharacteristics[AcceleratorType['TPU']].resource_type
+  elif args.gpu_type:
+    return AcceleratorTypeToAcceleratorCharacteristics[AcceleratorType['GPU']].resource_type
   else:
     raise ValueError("Unknown device type")
 
@@ -2230,7 +2231,8 @@ def workload_create(args) -> int:
     xpk_exit(1)
 
   xpk_print('Starting workload create', flush=True)
-  system = get_system_characteristics(args.device_type)
+  device_type = args.tpu_type if args.tpu_type else args.gpu_type
+  system = get_system_characteristics(device_type)
 
   if not check_if_workload_can_schedule(args, system):
     xpk_exit(1)
@@ -2826,18 +2828,26 @@ workload_create_parser_required_arguments.add_argument(
     required=True,
 )
 workload_create_parser_required_arguments.add_argument(
-    '--device-type',
-    type=str,
-    default=None,
-    help='The tpu type to use, v5litepod-16, etc.',
-    required=True,
-)
-workload_create_parser_required_arguments.add_argument(
     '--cluster',
     type=str,
     default=None,
     help='The name of the cluster to run the job on.',
     required=True,
+)
+
+device_group = workload_create_parser_required_arguments.add_mutually_exclusive_group(required=True)
+
+device_group.add_argument(
+    '--tpu-type',
+    type=str,
+    default=None,
+    help='The tpu type to use, v5litepod-16, etc.'
+)
+device_group.add_argument(
+    '--gpu-type',
+    type=str,
+    default=None,
+    help='The gpu type to use, h100-80gb-8, etc.'
 )
 
 ### Workload Optional Arguments
