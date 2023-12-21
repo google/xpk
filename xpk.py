@@ -270,13 +270,13 @@ class AcceleratorCharacteristics:
   machine_label: str
 
 AcceleratorTypeToAcceleratorCharacteristics = {
-     #tpu
+     # TPU
       AcceleratorType['TPU']: AcceleratorCharacteristics(
-      'google.com/tpu', 'cloud.google.com/gke-tpu-accelerator', ' cloud.google.com/gke-tpu-topology'
+      'google.com/tpu', 'cloud.google.com/gke-tpu-accelerator', 'cloud.google.com/gke-tpu-topology'
       ),
-     #gpu
+     # GPU
       AcceleratorType['GPU']: AcceleratorCharacteristics(
-      'nvidia.com/gpu', 'cloud.google.com/gke-accelerator', ' cloud.google.com/gce-machine-type'
+      'nvidia.com/gpu', 'cloud.google.com/gke-accelerator', 'cloud.google.com/gce-machine-type'
       )
 }
 
@@ -1299,7 +1299,6 @@ def run_gke_node_pool_create_command(args, system_characteristics) -> int:
       f'Creating {args.num_slices} node pool or pools of {device_type}\n'
       f'Underlyingly, we assume that means: {system_characteristics}'
   )
-  print("system_char is ", system_characteristics)
   existing_node_pool_names, return_code = get_all_nodepools_programmatic(args)
   if return_code > 0:
     xpk_print('Listing all node pools failed!')
@@ -1664,11 +1663,13 @@ def cluster_cacheimage(args) -> int:
   set_cluster_command_code = set_cluster_command(args)
   if set_cluster_command_code != 0:
     xpk_exit(set_cluster_command_code)
-  nodeSelectorKey = "cloud.google.com/gke-tpu-accelerator" if args.tpu_type else "cloud.google.com/gke-accelerator"
+  
+  accelerator_type = AcceleratorType['TPU'] if args.tpu_type else AcceleratorType['GPU']
+  node_selector_key = AcceleratorTypeToAcceleratorCharacteristics[accelerator_type].accelerator_label
   yml_string = cluster_preheat_yml.format(
       cachekey=args.cache_key,
       image_name=args.docker_image,
-      nodeSelectorKey=nodeSelectorKey
+      nodeSelectorKey=node_selector_key
   )
   tmp = write_temporary_file(yml_string)
   command_apply = f'kubectl apply -f {str(tmp.file.name)}'
