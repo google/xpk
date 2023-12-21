@@ -1331,6 +1331,7 @@ def run_gke_node_pool_create_command(args, system_characteristics) -> int:
         ' --scopes=storage-full,gke-default'
         ' --enable-gvnic --max-pods-per-node 15'
         f' {args.custom_tpu_nodepool_arguments}'
+        f' --accelerator type=nvidia-h100-80gb,count=8,gpu-driver-version=default'
     )
     if args.tpu_type:
       command += (f' --tpu-topology={system_characteristics.topology}')
@@ -2547,13 +2548,22 @@ cluster_create_required_arguments.add_argument(
     ),
     required=True,
 )
-cluster_create_required_arguments.add_argument(
-    '--device-type',
+
+cluster_device_group = cluster_create_required_arguments.add_mutually_exclusive_group(required=True)
+
+cluster_device_group.add_argument(
+    '--tpu-type',
     type=str,
-    default='v5litepod-16',
-    help='The type of the TPU. v5litepod and v4 are the only supported types.',
-    required=True,
+    default=None,
+    help='The tpu type to use, v5litepod-16, etc.'
 )
+cluster_device_group.add_argument(
+    '--gpu-type',
+    type=str,
+    default=None,
+    help='The gpu type to use, h100-80gb-8, etc.'
+)
+
 
 # Capacity Arguments
 cluster_create_capacity_arguments.add_argument(
@@ -2835,15 +2845,15 @@ workload_create_parser_required_arguments.add_argument(
     required=True,
 )
 
-device_group = workload_create_parser_required_arguments.add_mutually_exclusive_group(required=True)
+workload_device_group = workload_create_parser_required_arguments.add_mutually_exclusive_group(required=True)
 
-device_group.add_argument(
+workload_device_group.add_argument(
     '--tpu-type',
     type=str,
     default=None,
     help='The tpu type to use, v5litepod-16, etc.'
 )
-device_group.add_argument(
+workload_device_group.add_argument(
     '--gpu-type',
     type=str,
     default=None,
