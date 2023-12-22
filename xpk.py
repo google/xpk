@@ -142,7 +142,7 @@ metadata:
   name: {cluster_hardware_name}
 spec:
   nodeLabels:
-    {nodeLabels}
+    {node_labels}
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
@@ -1294,7 +1294,7 @@ def run_gke_node_pool_create_command(args, system_characteristics) -> int:
   Returns:
     0 if successful and 1 otherwise.
   """
-  device_type = args.tpu_type if args.tpu_type else args.gpu_type
+  device_type, acc_type = get_device_and_accelerator_type(args)
   xpk_print(
       f'Creating {args.num_slices} node pool or pools of {device_type}\n'
       f'Underlyingly, we assume that means: {system_characteristics}'
@@ -1332,7 +1332,7 @@ def run_gke_node_pool_create_command(args, system_characteristics) -> int:
         f' {args.custom_tpu_nodepool_arguments}'
         f' --accelerator type=nvidia-h100-80gb,count=8,gpu-driver-version=default'
     )
-    if args.tpu_type:
+    if acc_type == AcceleratorType['TPU']:
       command += (f' --tpu-topology={system_characteristics.topology}')
     task = f'NodepoolCreate-{node_pool_name}'
     commands.append(command)
@@ -1488,15 +1488,15 @@ def enable_kueue_crds(args, system) -> int:
   Returns:
     0 if successful and 1 otherwise.
   """
-  device_type = args.tpu_type if args.tpu_type else args.gpu_type
+  device_type, acc_type = get_device_and_accelerator_type(args)
   cluster_hardware_name = f'{args.num_slices}x{device_type}'
   total_chips = args.num_slices * system.vms_per_slice * system.chips_per_vm
   yml_string = cluster_set_crd_yaml.format(
       system=system,
       cluster_hardware_name=cluster_hardware_name,
       total_chips=total_chips,
-      nodeLabels=create_node_selector(args, system),
-      resource_type=get_resource_type(args)
+      node_labels=create_node_selector(acc_type, system),
+      resource_type=AcceleratorTypeToAcceleratorCharacteristics[acc_type].resource_type
   )
   tmp = write_temporary_file(yml_string)
   command = f'kubectl apply -f {str(tmp.file.name)}'
@@ -1576,7 +1576,7 @@ def cluster_create(args) -> int:
   Returns:
     0 if successful and 1 otherwise.
   """
-  device_type = args.tpu_type if args.tpu_type else args.gpu_type
+  device_type, acc_type = get_device_and_accelerator_type(args)
   system_characteristics = get_system_characteristics(device_type)
   print("sys_Char is ", system_characteristics)
   xpk_print(f'Starting cluster create for cluster {args.cluster}:', flush=True)
@@ -1664,8 +1664,8 @@ def cluster_cacheimage(args) -> int:
   if set_cluster_command_code != 0:
     xpk_exit(set_cluster_command_code)
   
-  accelerator_type = AcceleratorType['TPU'] if args.tpu_type else AcceleratorType['GPU']
-  node_selector_key = AcceleratorTypeToAcceleratorCharacteristics[accelerator_type].accelerator_label
+  device_type, acc_type = get_device_and_accelerator_type(args)
+  node_selector_key = AcceleratorTypeToAcceleratorCharacteristics[acc_type].accelerator_label
   yml_string = cluster_preheat_yml.format(
       cachekey=args.cache_key,
       image_name=args.docker_image,
@@ -2173,31 +2173,28 @@ def get_gke_debugging_dashboard(args):
   return dashboard_id
 
 
-def create_node_selector(args, system) -> str:
-  if args.tpu_type:
-    ac = AcceleratorTypeToAcceleratorCharacteristics[AcceleratorType['TPU']]
-    return """{accelerator_label}: {gke_accelerator}
+def get_device_and_accelerator_type(args) -> tuple[str, int]:
+  device_type = args.tpu_type if args.tpu_type else args.device_type
+  # check if device_type is in TPU list
+  accelerator_type = AcceleratorType['TPU'] \
+    if device_type in TpuUserFacingNameToSystemCharacteristics \
+      else AcceleratorType['GPU']
+  return device_type, accelerator_type
+
+
+def create_node_selector(acc_type, system) -> str:
+  node_selector = "{accelerator_label}: {gke_accelerator}".format(
+    accelerator_label=AcceleratorTypeToAcceleratorCharacteristics[acc_type].accelerator_label,
+    gke_accelerator=system.gke_accelerator,
+  )
+  if acc_type == AcceleratorType['TPU']:
+    node_selector += """
                 {machine_label}: {topology}
-    """.format(accelerator_label=ac.accelerator_label, 
-               gke_accelerator=system.gke_accelerator,
-               machine_label=ac.machine_label,
-               topology=system.topology)
-  elif args.gpu_type:
-    ac = AcceleratorTypeToAcceleratorCharacteristics[AcceleratorType['GPU']]
-    return """{accelerator_label}: {gke_accelerator}
-    """.format(accelerator_label=ac.accelerator_label, 
-               gke_accelerator=system.gke_accelerator)
-  else:
-    raise ValueError("Unknown device type")
-
-
-def get_resource_type(args) -> str:
-  if args.tpu_type:
-    return AcceleratorTypeToAcceleratorCharacteristics[AcceleratorType['TPU']].resource_type
-  elif args.gpu_type:
-    return AcceleratorTypeToAcceleratorCharacteristics[AcceleratorType['GPU']].resource_type
-  else:
-    raise ValueError("Unknown device type")
+    """.format(
+      machine_label=acc_type.machine_label,
+      topology=system.topology
+    )
+  return node_selector
 
 
 def get_system_characteristics(name):
@@ -2233,7 +2230,7 @@ def workload_create(args) -> int:
     xpk_exit(1)
 
   xpk_print('Starting workload create', flush=True)
-  device_type = args.tpu_type if args.tpu_type else args.gpu_type
+  device_type, acc_type = get_device_and_accelerator_type(args)
   system = get_system_characteristics(device_type)
 
   if not check_if_workload_can_schedule(args, system):
@@ -2265,8 +2262,8 @@ def workload_create(args) -> int:
                                            docker_image=docker_image,
                                            command=command,
                                            container=container,
-                                           node_selector=create_node_selector(args, system),
-                                           resource_type=get_resource_type(args))
+                                           node_selector=create_node_selector(acc_type, system),
+                                           resource_type=AcceleratorTypeToAcceleratorCharacteristics[acc_type].resource_type)
   tmp = write_temporary_file(yml_string)
   command = f'kubectl apply -f {str(tmp.file.name)}'
 
@@ -2559,10 +2556,10 @@ cluster_device_group.add_argument(
     help='The tpu type to use, v5litepod-16, etc.'
 )
 cluster_device_group.add_argument(
-    '--gpu-type',
+    '--device-type',
     type=str,
     default=None,
-    help='The gpu type to use, h100-80gb-8, etc.'
+    help='The device type to use (can be tpu or gpu), v5litepod-16, h100-80gb-8, etc.'
 )
 
 
@@ -2855,10 +2852,10 @@ workload_device_group.add_argument(
     help='The tpu type to use, v5litepod-16, etc.'
 )
 workload_device_group.add_argument(
-    '--gpu-type',
+    '--device-type',
     type=str,
     default=None,
-    help='The gpu type to use, h100-80gb-8, etc.'
+    help='The device type to use (can be tpu or gpu), v5litepod-16, h100-80gb-8, etc.'
 )
 
 ### Workload Optional Arguments
