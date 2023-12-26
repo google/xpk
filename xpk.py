@@ -42,7 +42,6 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass
-from enum import Enum
 
 ################### Compatibility Check ###################
 # Check that the user runs the below version or greater.
@@ -1285,7 +1284,7 @@ def get_capacity_arguments(args) -> tuple[str, int]:
 
   return capacity_args, return_code
 
-def run_gke_node_pool_create_command(args, system_characteristics, device_type) -> int:
+def run_gke_node_pool_create_command(args, system_characteristics) -> int:
   """Run the Create GKE Node Pool request.
 
   Args:
@@ -1296,7 +1295,7 @@ def run_gke_node_pool_create_command(args, system_characteristics, device_type) 
     0 if successful and 1 otherwise.
   """
   xpk_print(
-      f'Creating {args.num_slices} node pool or pools of {device_type}\n'
+      f'Creating {args.num_slices} node pool or pools of {system_characteristics.device_type}\n'
       f'Underlyingly, we assume that means: {system_characteristics}'
   )
   existing_node_pool_names, return_code = get_all_nodepools_programmatic(args)
@@ -1478,7 +1477,7 @@ def install_kueue_on_cluster(args) -> int:
   return 0
 
 
-def enable_kueue_crds(args, system, device_type) -> int:
+def enable_kueue_crds(args, system) -> int:
   """Enable Kueue crds.
 
   Args:
@@ -1489,7 +1488,7 @@ def enable_kueue_crds(args, system, device_type) -> int:
     0 if successful and 1 otherwise.
   """
 
-  cluster_hardware_name = f'{args.num_slices}x{device_type}'
+  cluster_hardware_name = f'{args.num_slices}x{system.device_type}'
   total_chips = args.num_slices * system.vms_per_slice * system.chips_per_vm
   yml_string = cluster_set_crd_yaml.format(
       system=system,
@@ -1576,8 +1575,7 @@ def cluster_create(args) -> int:
   Returns:
     0 if successful and 1 otherwise.
   """
-  device_type, accelerator_type = get_device_and_accelerator_type(args)
-  system_characteristics = get_system_characteristics(device_type)
+  system_characteristics = get_system_characteristics(args)
   print("sys_Char is ", system_characteristics)
   xpk_print(f'Starting cluster create for cluster {args.cluster}:', flush=True)
   add_zone_and_project(args)
@@ -1587,7 +1585,7 @@ def cluster_create(args) -> int:
     xpk_exit(create_cluster_command_code)
 
   run_gke_node_pool_create_command_code = run_gke_node_pool_create_command(
-      args, system_characteristics, device_type
+      args, system_characteristics
   )
   if run_gke_node_pool_create_command_code != 0:
     xpk_exit(run_gke_node_pool_create_command_code)
@@ -1610,7 +1608,7 @@ def cluster_create(args) -> int:
     xpk_exit(install_kueue_on_cluster_code)
 
   xpk_print('Enable Kueue CRDs')
-  enable_kueue_creds_code = enable_kueue_crds(args, system_characteristics, device_type)
+  enable_kueue_creds_code = enable_kueue_crds(args, system_characteristics)
   if enable_kueue_creds_code != 0:
     xpk_exit(enable_kueue_creds_code)
 
@@ -2173,15 +2171,6 @@ def get_gke_debugging_dashboard(args):
   return dashboard_id
 
 
-def get_device_and_accelerator_type(args) -> tuple[str, int]:
-  device_type = args.tpu_type if args.tpu_type else args.device_type
-  # check if device_type is in TPU list
-  accelerator_type = AcceleratorType['TPU'] \
-    if device_type in TpuUserFacingNameToSystemCharacteristics \
-      else AcceleratorType['GPU']
-  return device_type, accelerator_type
-
-
 def create_node_selector(acclerator_type, system) -> str:
   node_selector = "{accelerator_label}: {gke_accelerator}".format(
     accelerator_label=AcceleratorTypeToAcceleratorCharacteristics[acclerator_type].accelerator_label,
@@ -2197,11 +2186,10 @@ def create_node_selector(acclerator_type, system) -> str:
   return node_selector
 
 
-def get_system_characteristics(name):
-  if name in TpuUserFacingNameToSystemCharacteristics:
-    return TpuUserFacingNameToSystemCharacteristics[name]
-  elif name in GpuUserFacingNameToSystemCharacteristics:
-    return GpuUserFacingNameToSystemCharacteristics[name]
+def get_system_characteristics(args):
+  device_type = args.tpu_type if args.tpu_type else args.device_type
+  if device_type in UserFacingNameToSystemCharacteristics:
+    return UserFacingNameToSystemCharacteristics[device_type]
   else:
     raise ValueError("Unknown device type")
 
@@ -2230,8 +2218,7 @@ def workload_create(args) -> int:
     xpk_exit(1)
 
   xpk_print('Starting workload create', flush=True)
-  device_type, acclerator_type = get_device_and_accelerator_type(args)
-  system = get_system_characteristics(device_type)
+  system = get_system_characteristics(args)
 
   if not check_if_workload_can_schedule(args, system):
     xpk_exit(1)
@@ -2257,13 +2244,14 @@ def workload_create(args) -> int:
   else:
     container = get_main_container(args, system, docker_image, command)
 
+  resource_type = AcceleratorTypeToAcceleratorCharacteristics[system.accelerator_type].resource_type
   yml_string = workload_create_yaml.format(args=args,
                                            system=system,
                                            docker_image=docker_image,
                                            command=command,
                                            container=container,
-                                           node_selector=create_node_selector(acclerator_type, system),
-                                           resource_type=AcceleratorTypeToAcceleratorCharacteristics[acclerator_type].resource_type)
+                                           node_selector=create_node_selector(system.accelerator_type, system),
+                                           resource_type=resource_type)
   tmp = write_temporary_file(yml_string)
   command = f'kubectl apply -f {str(tmp.file.name)}'
 
