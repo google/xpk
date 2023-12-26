@@ -1035,9 +1035,8 @@ def zone_to_region(zone) -> str:
   Returns:
      The region name.
   """
-  return zone
-  # zone_terms = zone.split('-')
-  # return zone_terms[0] + '-' + zone_terms[1]
+  zone_terms = zone.split('-')
+  return zone_terms[0] + '-' + zone_terms[1]
 
 
 def run_gke_cluster_create_command(args) -> int:
@@ -1084,7 +1083,8 @@ def create_cluster_configmap(args, system):
     0 if successful and 1 otherwise.
   """
   # TODO: Update when GPU support is enabled
-  data = f'{args.tpu_type}: "{int(args.num_slices) * system.vms_per_slice}"'
+  # data = f'{args.tpu_type}: "{int(args.num_slices) * system.vms_per_slice}"'
+  data = f'{args.device_type}: "{int(args.num_slices) * system.vms_per_slice}"'
   yml_string = cluster_configmap_yaml.format(args=args,
                                            data=data)
   tmp = write_temporary_file(yml_string)
@@ -1284,19 +1284,19 @@ def get_capacity_arguments(args) -> tuple[str, int]:
 
   return capacity_args, return_code
 
-def run_gke_node_pool_create_command(args, system_characteristics) -> int:
+def run_gke_node_pool_create_command(args, system) -> int:
   """Run the Create GKE Node Pool request.
 
   Args:
     args: user provided arguments for running the command.
-    system_characteristics: System characteristics based on TPU type/topology.
+    system: System characteristics based on TPU type/topology.
 
   Returns:
     0 if successful and 1 otherwise.
   """
   xpk_print(
-      f'Creating {args.num_slices} node pool or pools of {system_characteristics.device_type}\n'
-      f'Underlyingly, we assume that means: {system_characteristics}'
+      f'Creating {args.num_slices} node pool or pools of {system.device_type}\n'
+      f'Underlyingly, we assume that means: {system}'
   )
   existing_node_pool_names, return_code = get_all_nodepools_programmatic(args)
   if return_code > 0:
@@ -1322,17 +1322,18 @@ def run_gke_node_pool_create_command(args, system_characteristics) -> int:
         f' --placement-type=COMPACT --cluster={args.cluster}'
         f' --project={args.project} --node-locations={args.zone}'
         f' --region={zone_to_region(args.zone)}'
-        f' --num-nodes={system_characteristics.vms_per_slice}'
-        f' --machine-type={system_characteristics.gce_machine_type}'
+        f' --num-nodes={system.vms_per_slice}'
+        f' --machine-type={system.gce_machine_type}'
         f' --host-maintenance-interval={args.host_maintenance_interval}'
         f' {capacity_args}'
         ' --scopes=storage-full,gke-default'
         ' --enable-gvnic --max-pods-per-node 15'
         f' {args.custom_tpu_nodepool_arguments}'
-        f' --accelerator type=nvidia-h100-80gb,count=8,gpu-driver-version=default'
     )
-    if system_characteristics.acclerator_type == AcceleratorType['TPU']:
-      command += (f' --tpu-topology={system_characteristics.topology}')
+    if system.accelerator_type == AcceleratorType['TPU']:
+      command += (f' --tpu-topology={system.topology}')
+    elif system.accelerator_type == AcceleratorType['GPU']:
+      command += (f' --accelerator type={system.gke_accelerator},count={str(system.chips_per_vm)},gpu-driver-version=default')
     task = f'NodepoolCreate-{node_pool_name}'
     commands.append(command)
     task_names.append(task)
@@ -1494,8 +1495,8 @@ def enable_kueue_crds(args, system) -> int:
       system=system,
       cluster_hardware_name=cluster_hardware_name,
       total_chips=total_chips,
-      node_labels=create_node_selector(system.acclerator_type, system),
-      resource_type=AcceleratorTypeToAcceleratorCharacteristics[system.acclerator_type].resource_type
+      node_labels=create_node_selector(system.accelerator_type, system),
+      resource_type=AcceleratorTypeToAcceleratorCharacteristics[system.accelerator_type].resource_type
   )
   tmp = write_temporary_file(yml_string)
   command = f'kubectl apply -f {str(tmp.file.name)}'
@@ -1662,8 +1663,8 @@ def cluster_cacheimage(args) -> int:
   if set_cluster_command_code != 0:
     xpk_exit(set_cluster_command_code)
   
-  device_type, acclerator_type = get_device_and_accelerator_type(args)
-  node_selector_key = AcceleratorTypeToAcceleratorCharacteristics[acclerator_type].accelerator_label
+  device_type, accelerator_type = get_device_and_accelerator_type(args)
+  node_selector_key = AcceleratorTypeToAcceleratorCharacteristics[accelerator_type].accelerator_label
   yml_string = cluster_preheat_yml.format(
       cachekey=args.cache_key,
       image_name=args.docker_image,
@@ -1921,20 +1922,20 @@ def check_if_workload_can_schedule(args, system):
     xpk_print(f'No ConfigMap exist for cluster with the name {args.cluster}-configmap.')
     return True
 
-  if args.tpu_type not in cluster_config_map:
-    xpk_print(f'{args.workload} is requesting {args.tpu_type} but '
+  if args.device_type not in cluster_config_map:
+    xpk_print(f'{args.workload} is requesting {args.device_type} but '
       f'cluster only contains {cluster_config_map.keys()}. '
       'XPK will not create this workload.'
     )
     return False
 
-  max_vm_in_cluster = cluster_config_map[args.tpu_type]
+  max_vm_in_cluster = cluster_config_map[args.device_type]
   vm_required_by_workload = int(args.num_slices) * system.vms_per_slice
   if vm_required_by_workload > max_vm_in_cluster:
     xpk_print(
-        f'{args.workload} is requesting {args.num_slices} slice/slices of {args.tpu_type}, '
+        f'{args.workload} is requesting {args.num_slices} slice/slices of {args.device_type}, '
         f'which is {vm_required_by_workload} VMs, '
-        f'but the cluster only contains {max_vm_in_cluster} VMs of {args.tpu_type}. '
+        f'but the cluster only contains {max_vm_in_cluster} VMs of {args.device_type}. '
         'XPK will not create this workload.'
     )
     return False
@@ -2171,16 +2172,16 @@ def get_gke_debugging_dashboard(args):
   return dashboard_id
 
 
-def create_node_selector(acclerator_type, system) -> str:
+def create_node_selector(accelerator_type, system) -> str:
   node_selector = "{accelerator_label}: {gke_accelerator}".format(
-    accelerator_label=AcceleratorTypeToAcceleratorCharacteristics[acclerator_type].accelerator_label,
+    accelerator_label=AcceleratorTypeToAcceleratorCharacteristics[accelerator_type].accelerator_label,
     gke_accelerator=system.gke_accelerator,
   )
-  if acclerator_type == AcceleratorType['TPU']:
+  if accelerator_type == AcceleratorType['TPU']:
     node_selector += """
                 {machine_label}: {topology}
     """.format(
-      machine_label=acclerator_type.machine_label,
+      machine_label=AcceleratorTypeToAcceleratorCharacteristics[accelerator_type].machine_label,
       topology=system.topology
     )
   return node_selector
