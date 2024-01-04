@@ -98,22 +98,13 @@ spec:
               dnsPolicy: ClusterFirstWithHostNet
               containers:
               {container}
-              - name: {args.docker_name}
-                image: {docker_image}
-                env: {args.env}
-                ports:
-                - containerPort: 8471
-                - containerPort: 8080
-                securityContext:
-                  privileged: true
-                command:
-                - bash
-                - -c
-                - |
-                  echo XPK Start: $(date) ; {command} ; EXIT_CODE=$? ; echo XPK End: $(date); echo EXIT_CODE=$EXIT_CODE ; sleep 5; exit $EXIT_CODE
-                resources:
-                  limits:
-                    {resource_type}: {system.chips_per_vm}
+                volumeMounts:
+                - mountPath: /dev/shm
+                  name: dshm-2
+              volumes:
+              - emptyDir:
+                  medium: Memory
+                name: dshm-2
 """
 
 workload_delete_yaml = """apiVersion: jobset.x-k8s.io/v1alpha2
@@ -1083,7 +1074,6 @@ def create_cluster_configmap(args, system):
     0 if successful and 1 otherwise.
   """
   # TODO: Update when GPU support is enabled
-  # data = f'{args.tpu_type}: "{int(args.num_slices) * system.vms_per_slice}"'
   data = f'{args.device_type}: "{int(args.num_slices) * system.vms_per_slice}"'
   yml_string = cluster_configmap_yaml.format(args=args,
                                            data=data)
@@ -1577,7 +1567,6 @@ def cluster_create(args) -> int:
     0 if successful and 1 otherwise.
   """
   system_characteristics = get_system_characteristics(args)
-  print("sys_Char is ", system_characteristics)
   xpk_print(f'Starting cluster create for cluster {args.cluster}:', flush=True)
   add_zone_and_project(args)
 
@@ -2033,7 +2022,7 @@ def get_main_and_sidecar_container(args, system, docker_image, command) -> str:
   """
   return yaml.format(main_container=main_container)
 
-def get_main_container(args, system, docker_image, command) -> str:
+def get_main_container(args, system, docker_image, command, resource_type) -> str:
   """Generate yaml for main container.
   Args:
     args: user provided arguments for running the command.
@@ -2060,12 +2049,13 @@ def get_main_container(args, system, docker_image, command) -> str:
                   echo XPK Start: $(date) ; {command} ; EXIT_CODE=$? ; echo XPK End: $(date); echo EXIT_CODE=$EXIT_CODE ; sleep 5; exit $EXIT_CODE
                 resources:
                   limits:
-                    google.com/tpu: {system.chips_per_vm}
+                    {resource_type}: {system.chips_per_vm}
   """
   return yaml.format(args=args,
                    system=system,
                    docker_image=docker_image,
-                   command=command)
+                   command=command,
+                   resource_type=resource_type)
 
 def get_gke_dashboard(args, dashboard_filter):
   """Get the identifier of GKE dashboard deployed in the project.
@@ -2237,15 +2227,15 @@ def workload_create(args) -> int:
                 f'gsutil cp -r /tmp/xla_dump/ {args.debug_dump_gcs}/$WORKER_ID')
 
   debugging_dashboard_id = None
+  resource_type = AcceleratorTypeToAcceleratorCharacteristics[system.accelerator_type].resource_type
   if args.deploy_stacktrace_sidecar:
     xpk_print('Sidecar container to display stack traces will also be deployed.')
     container = get_main_and_sidecar_container(args, system, docker_image, command)
     # Get GKE debugging dashboard only when sidecar container is deployed
     debugging_dashboard_id = get_gke_debugging_dashboard(args)
   else:
-    container = get_main_container(args, system, docker_image, command)
+    container = get_main_container(args, system, docker_image, command, resource_type)
 
-  resource_type = AcceleratorTypeToAcceleratorCharacteristics[system.accelerator_type].resource_type
   yml_string = workload_create_yaml.format(args=args,
                                            system=system,
                                            docker_image=docker_image,
