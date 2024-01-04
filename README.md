@@ -41,7 +41,7 @@ xpk supports the following TPU types:
 * v5e
 * v5p
 
-and the follwoing GPU types:
+and the following GPU types:
 * a100
 * h100
 
