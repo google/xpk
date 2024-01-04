@@ -2163,6 +2163,15 @@ def get_gke_debugging_dashboard(args):
 
 
 def create_node_selector(accelerator_type, system) -> str:
+  """Generates node selector.
+
+  Args:
+    accelerator_type: type of accelerator.
+    system: system characteristics.
+
+  Returns:
+    The node selector.
+  """
   node_selector = "{accelerator_label}: {gke_accelerator}".format(
     accelerator_label=AcceleratorTypeToAcceleratorCharacteristics[accelerator_type].accelerator_label,
     gke_accelerator=system.gke_accelerator,
@@ -2177,7 +2186,15 @@ def create_node_selector(accelerator_type, system) -> str:
   return node_selector
 
 
-def get_system_characteristics(args):
+def get_system_characteristics(args) -> SystemCharacteristics:
+  """Generates node selector.
+
+  Args:
+    args: user provided arguments for running the command.
+
+  Returns:
+    The system characteristics.
+  """
   device_type = args.tpu_type if args.tpu_type else args.device_type
   if device_type in UserFacingNameToSystemCharacteristics:
     return UserFacingNameToSystemCharacteristics[device_type]
