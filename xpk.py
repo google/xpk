@@ -237,9 +237,9 @@ spec:
 """
 
 cluster_configmap_yaml = """kind: ConfigMap
-apiVersion: v1 
+apiVersion: v1
 metadata:
-  name: {args.cluster}-resources-configmap 
+  name: {args.cluster}-resources-configmap
 data:
   {data}
 """
@@ -1325,7 +1325,11 @@ def run_gke_node_pool_create_command(args, system) -> int:
     if system.accelerator_type == AcceleratorType['TPU']:
       command += (f' --tpu-topology={system.topology}')
     elif system.accelerator_type == AcceleratorType['GPU']:
-      command += (f' --accelerator type={system.gke_accelerator},count={str(system.chips_per_vm)},gpu-driver-version=default')
+      command += (
+        f' --accelerator type={system.gke_accelerator},'
+        f'count={str(system.chips_per_vm)},'
+        'gpu-driver-version=default'
+      )
     task = f'NodepoolCreate-{node_pool_name}'
     commands.append(command)
     task_names.append(task)
@@ -1573,8 +1577,8 @@ def cluster_create(args) -> int:
 
   if return_code > 0:
     xpk_print('Fetching system characteristics failed!')
-    return return_code
-  
+    xpk_exit(return_code)
+
   xpk_print(f'Starting cluster create for cluster {args.cluster}:', flush=True)
   add_zone_and_project(args)
 
@@ -1659,9 +1663,13 @@ def cluster_cacheimage(args) -> int:
   set_cluster_command_code = set_cluster_command(args)
   if set_cluster_command_code != 0:
     xpk_exit(set_cluster_command_code)
-  
-  device_type, accelerator_type = get_device_and_accelerator_type(args)
-  node_selector_key = AcceleratorTypeToAcceleratorCharacteristics[accelerator_type].accelerator_label
+  system, return_code = get_system_characteristics(args)
+
+  if return_code > 0:
+    xpk_print('Fetching system characteristics failed!')
+    xpk_exit(return_code)
+
+  node_selector_key = AcceleratorTypeToAcceleratorCharacteristics[system.accelerator_type].accelerator_label
   yml_string = cluster_preheat_yml.format(
       cachekey=args.cache_key,
       image_name=args.docker_image,
@@ -2013,7 +2021,8 @@ def get_main_and_sidecar_container(args, system, docker_image, command) -> str:
     str:
       yaml for main and sidecar container
   """
-  main_container = get_main_container(args, system, docker_image, command)
+  resource_type = AcceleratorTypeToAcceleratorCharacteristics[system.accelerator_type].resource_type
+  main_container = get_main_container(args, system, docker_image, command, resource_type)
   yaml = """- name: stacktrace-explorer
                 image: busybox:1.28
                 args: [/bin/sh, -c, "while [ ! -d /tmp/debugging ]; do sleep 60; done; while [ ! -e /tmp/debugging/* ]; do sleep 60; done; tail -n+1 -f /tmp/debugging/*"]
@@ -2179,10 +2188,7 @@ def create_accelerator_label(accelerator_type, system) -> str:
   Returns:
     The accelerator label.
   """
-  return "{accelerator_label}: {gke_accelerator}".format(
-    accelerator_label=AcceleratorTypeToAcceleratorCharacteristics[accelerator_type].accelerator_label,
-    gke_accelerator=system.gke_accelerator,
-  )
+  return f"{AcceleratorTypeToAcceleratorCharacteristics[accelerator_type].accelerator_label}: {system.gke_accelerator}"
 
 def create_machine_label(accelerator_type, system) -> str:
   """Generates machine label.
@@ -2195,10 +2201,7 @@ def create_machine_label(accelerator_type, system) -> str:
     The machine label.
   """
   if accelerator_type == AcceleratorType['TPU']:
-    return "{machine_label}: {topology}".format(
-      machine_label=AcceleratorTypeToAcceleratorCharacteristics[accelerator_type].machine_label,
-      topology=system.topology
-    )
+    return f"{AcceleratorTypeToAcceleratorCharacteristics[accelerator_type].machine_label}: {system.topology}"
   return ""
 
 def get_system_characteristics(args) -> tuple[SystemCharacteristics|None, int]:
@@ -2246,8 +2249,8 @@ def workload_create(args) -> int:
 
   if return_code > 0:
     xpk_print('Fetching system characteristics failed!')
-    return return_code
-  
+    xpk_exit(return_code)
+
   if not check_if_workload_can_schedule(args, system):
     xpk_exit(1)
 
