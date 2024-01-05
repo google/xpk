@@ -1566,7 +1566,12 @@ def cluster_create(args) -> int:
   Returns:
     0 if successful and 1 otherwise.
   """
-  system_characteristics = get_system_characteristics(args)
+  system, return_code = get_system_characteristics(args)
+
+  if return_code > 0:
+    xpk_print('Fetching system characteristics failed!')
+    return return_code
+  
   xpk_print(f'Starting cluster create for cluster {args.cluster}:', flush=True)
   add_zone_and_project(args)
 
@@ -2186,20 +2191,21 @@ def create_node_selector(accelerator_type, system) -> str:
   return node_selector
 
 
-def get_system_characteristics(args) -> SystemCharacteristics:
+def get_system_characteristics(args) -> tuple[SystemCharacteristics|None, int]:
   """Generates node selector.
 
   Args:
     args: user provided arguments for running the command.
 
   Returns:
-    The system characteristics.
+    Tuple with string with the system characteristics and
+    int of 0 if successful and 1 otherwise.
   """
   device_type = args.tpu_type if args.tpu_type else args.device_type
   if device_type in UserFacingNameToSystemCharacteristics:
-    return UserFacingNameToSystemCharacteristics[device_type]
+    return UserFacingNameToSystemCharacteristics[device_type], 0
   else:
-    raise ValueError("Unknown device type")
+    return None, 1
 
 def workload_create(args) -> int:
   """Run jobset apply command for a file.
@@ -2226,8 +2232,12 @@ def workload_create(args) -> int:
     xpk_exit(1)
 
   xpk_print('Starting workload create', flush=True)
-  system = get_system_characteristics(args)
+  system, return_code = get_system_characteristics(args)
 
+  if return_code > 0:
+    xpk_print('Fetching system characteristics failed!')
+    return return_code
+  
   if not check_if_workload_can_schedule(args, system):
     xpk_exit(1)
 
