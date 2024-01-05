@@ -92,7 +92,8 @@ spec:
               schedulerName: {args.scheduler}
               restartPolicy: Never
               nodeSelector:
-                {node_selector}
+                {accelerator_label}
+                {machine_label}
               priorityClassName: {args.priority}
               hostNetwork: true
               dnsPolicy: ClusterFirstWithHostNet
@@ -132,7 +133,8 @@ metadata:
   name: {cluster_hardware_name}
 spec:
   nodeLabels:
-    {node_labels}
+    {accelerator_label}
+    {machine_label}
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
@@ -1485,7 +1487,8 @@ def enable_kueue_crds(args, system) -> int:
       system=system,
       cluster_hardware_name=cluster_hardware_name,
       total_chips=total_chips,
-      node_labels=create_node_selector(system.accelerator_type, system),
+      accelerator_label=create_accelerator_label(system.accelerator_type, system),
+      machine_label=create_machine_label(system.accelerator_type, system),
       resource_type=AcceleratorTypeToAcceleratorCharacteristics[system.accelerator_type].resource_type
   )
   tmp = write_temporary_file(yml_string)
@@ -1580,7 +1583,7 @@ def cluster_create(args) -> int:
     xpk_exit(create_cluster_command_code)
 
   run_gke_node_pool_create_command_code = run_gke_node_pool_create_command(
-      args, system_characteristics
+      args, system
   )
   if run_gke_node_pool_create_command_code != 0:
     xpk_exit(run_gke_node_pool_create_command_code)
@@ -1603,12 +1606,12 @@ def cluster_create(args) -> int:
     xpk_exit(install_kueue_on_cluster_code)
 
   xpk_print('Enable Kueue CRDs')
-  enable_kueue_creds_code = enable_kueue_crds(args, system_characteristics)
+  enable_kueue_creds_code = enable_kueue_crds(args, system)
   if enable_kueue_creds_code != 0:
     xpk_exit(enable_kueue_creds_code)
 
   xpk_print('Creating ConfigMap for cluster')
-  create_cluster_configmap_code = create_cluster_configmap(args, system_characteristics)
+  create_cluster_configmap_code = create_cluster_configmap(args, system)
   if create_cluster_configmap_code != 0:
     xpk_exit(create_cluster_configmap_code)
 
@@ -2166,33 +2169,40 @@ def get_gke_debugging_dashboard(args):
 
   return dashboard_id
 
-
-def create_node_selector(accelerator_type, system) -> str:
-  """Generates node selector.
+def create_accelerator_label(accelerator_type, system) -> str:
+  """Generates accelerator label.
 
   Args:
     accelerator_type: type of accelerator.
     system: system characteristics.
 
   Returns:
-    The node selector.
+    The accelerator label.
   """
-  node_selector = "{accelerator_label}: {gke_accelerator}".format(
+  return "{accelerator_label}: {gke_accelerator}".format(
     accelerator_label=AcceleratorTypeToAcceleratorCharacteristics[accelerator_type].accelerator_label,
     gke_accelerator=system.gke_accelerator,
   )
+
+def create_machine_label(accelerator_type, system) -> str:
+  """Generates machine label.
+
+  Args:
+    accelerator_type: type of accelerator.
+    system: system characteristics.
+
+  Returns:
+    The machine label.
+  """
   if accelerator_type == AcceleratorType['TPU']:
-    node_selector += """
-                {machine_label}: {topology}
-    """.format(
+    return "{machine_label}: {topology}".format(
       machine_label=AcceleratorTypeToAcceleratorCharacteristics[accelerator_type].machine_label,
       topology=system.topology
     )
-  return node_selector
-
+  return ""
 
 def get_system_characteristics(args) -> tuple[SystemCharacteristics|None, int]:
-  """Generates node selector.
+  """Get system characteristics based on user provided arguments.
 
   Args:
     args: user provided arguments for running the command.
@@ -2268,7 +2278,8 @@ def workload_create(args) -> int:
                                            docker_image=docker_image,
                                            command=command,
                                            container=container,
-                                           node_selector=create_node_selector(system.accelerator_type, system),
+                                           accelerator_label=create_accelerator_label(system.accelerator_type, system),
+                                           machine_label=create_machine_label(system.accelerator_type, system),
                                            resource_type=resource_type)
   tmp = write_temporary_file(yml_string)
   command = f'kubectl apply -f {str(tmp.file.name)}'
