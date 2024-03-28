@@ -123,10 +123,20 @@ spec:
                 volumeMounts:
                 - mountPath: /dev/shm
                   name: dshm-2
+                - mountPath: /var/run/docker.sock
+                  name: docker-socket-volume
+                - mountPath: /tmp/xla_dump/
+                  name: xla-dump-volume
               volumes:
               - emptyDir:
                   medium: Memory
                 name: dshm-2
+              - name: docker-socket-volume
+                hostPath:
+                  path: /var/run/docker.sock
+              - name: xla-dump-volume
+                hostPath:
+                  path: /tmp/xla_dump/
 """
 
 gpu_workload_create_yaml = """apiVersion: jobset.x-k8s.io/v1alpha2
