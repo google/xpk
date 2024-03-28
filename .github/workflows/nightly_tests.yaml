@@ -23,6 +23,9 @@ env:
   # Names must be unique in parallel running tests.
   EMPTY_CLUSTER_NAME: nightly-test-zero-nodepools
   TPU_CLUSTER_NAME: nightly-test-2-v4-8-nodepools
+  PATHWAYS_TPU_CLUSTER_NAME: pw-nightly-test-2-v4-8-nodepools
+  WORKLOAD_NAME: test-xpk-basic-${RANDOM}
+  PATHWAYS_WORKLOAD_NAME: pw-test-xpk-${RANDOM}
 
 jobs:
   cluster-create-and-delete:
@@ -51,21 +54,40 @@ jobs:
       if: always()
     - name: Create an XPK Cluster with 2x v4-8 nodepools
       run: python xpk.py cluster create --cluster $TPU_CLUSTER_NAME --device-type=v4-8  --num-slices=2 --zone=us-central2-b --default-pool-cpu-machine-type=n1-standard-16 --reservation='${{ secrets.GCP_TPU_V4_RESERVATION }}' --custom-cluster-arguments='${{ secrets.CLUSTER_ARGUMENTS }}'
+    - name: Create an Pathways-enabled XPK Cluster with 4x v4-8 nodepools
+      run: python xpk.py cluster create --cluster $PATHWAYS_TPU_CLUSTER_NAME --device-type=v4-8  --num-slices=4 --zone=us-central2-b --default-pool-cpu-machine-type=n1-standard-16 --reservation='${{ secrets.GCP_TPU_V4_RESERVATION }}' --custom-cluster-arguments='${{ secrets.CLUSTER_ARGUMENTS }}'
     - name: Authenticate Docker
       run: gcloud auth configure-docker --quiet
     - name: Create test script to execute in workloads
       run: echo -e '#!/bin/bash \n echo "Hello world from a test script!"' > test.sh
     - name: Run a base-docker-image workload
-      run: python xpk.py workload create --cluster $TPU_CLUSTER_NAME --workload nightly-test-xpk-basic  --command "bash test.sh"  --tpu-type=v4-8 --num-slices=2 --zone=us-central2-b
+      run: python xpk.py workload create --cluster $TPU_CLUSTER_NAME --workload $WORKLOAD_NAME  --command "bash test.sh"  --tpu-type=v4-8 --num-slices=2 --zone=us-central2-b
+    - name: Run a Pathways workload
+      run: python xpk.py workload create --cluster $TPU_CLUSTER_NAME --workload $PATHWAYS_WORKLOAD_NAME  \
+            --docker-image='gcr.io/cloud-tpu-v2-images/pathways/pathways-demo:maxtext' \
+            --proxy-server-image='gcr.io/cloud-tpu-v2-images/pathways/pathways-demo:proxy_server' \
+            --server-image='gcr.io/cloud-tpu-v2-images/pathways/pathways-demo:server' \
+            --tpu-type=v4-8 --num-slices=2 --zone=us-central2-b \
+            --command "bash /usr/pathways/ifrt/maxtext_entrypoint.sh \
+            base_output_directory=gs://cloud-pathways-staging dataset_path=gs://maxtext-dataset/ \
+            per_device_batch_size=1 enable_checkpointing=false enable_profiler=false remat_policy=full \
+            global_parameter_scale=4 steps=300 max_target_length=2048 use_iota_embed=true \
+            reuse_example_batch=1 dataset_type=synthetic attention=flash gcs_metrics=True \
+            run_name=$PATHWAYS_WORKLOAD_NAME"
     - name: List out the workloads on the cluster
       run: python3 xpk.py workload list --cluster $TPU_CLUSTER_NAME --zone=us-central2-b
     - name: Run xpk inspector with the workload created above
-      run: python3 xpk.py inspector --cluster $TPU_CLUSTER_NAME --zone=us-central2-b  --workload nightly-test-xpk-basic
+      run: python3 xpk.py inspector --cluster $TPU_CLUSTER_NAME --zone=us-central2-b  --workload $WORKLOAD_NAME
     - name: Delete the workload on the cluster
-      run: python3 xpk.py workload delete --workload nightly-test-xpk-basic --cluster $TPU_CLUSTER_NAME --zone=us-central2-b
+      run: python3 xpk.py workload delete --workload $WORKLOAD_NAME --cluster $TPU_CLUSTER_NAME --zone=us-central2-b
+    - name: Delete the Pathways workload on the cluster
+      run: python3 xpk.py workload delete --workload $PATHWAYS_WORKLOAD_NAME --cluster $PATHWAYS_TPU_CLUSTER_NAME --zone=us-central2-b
     - name: Delete the cluster created
       if: always()
       run: python xpk.py cluster delete --cluster $TPU_CLUSTER_NAME --zone=us-central2-b
+    - name: Delete the cluster created
+      if: always()
+      run: python xpk.py cluster delete --cluster $PATHWAYS_TPU_CLUSTER_NAME --zone=us-central2-b
 
 
 
