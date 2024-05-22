@@ -245,7 +245,7 @@ spec:
   failurePolicy:
     maxRestarts: {args.max_restarts}
   successPolicy:
-    operator: "All"
+    operator: "Any"
     targetReplicatedJobs:
     - "main"
   replicatedJobs:
@@ -258,7 +258,7 @@ spec:
         labels:
           xpk.google.com/workload: {args.workload}
       spec:
-        backoffLimit: 4
+        backoffLimit: 0
         completions: {system.vms_per_slice}
         parallelism: {system.vms_per_slice}
         template:
@@ -298,6 +298,7 @@ spec:
       metadata:
         labels:
           xpk.google.com/workload: {args.workload}
+          app: pathways-rm
       spec:
         backoffLimit: 0
         completions: 1
@@ -347,6 +348,7 @@ spec:
       metadata:
         labels:
           xpk.google.com/workload: {args.workload}
+          app: pathways-proxy
       spec:
         backoffLimit: 0
         completions: 1
@@ -389,6 +391,26 @@ spec:
                 path: /tmp
                 type: DirectoryOrCreate
               name: shared-tmp
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: rm-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: pathways-rm
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: proxy-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: pathways-proxy
 """
 
 script_dir_dockerfile = """FROM {base_docker_image}
