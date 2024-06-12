@@ -1837,6 +1837,15 @@ UserFacingNameToSystemCharacteristics = {
         AcceleratorType['CPU'],
         'n2-standard-32-2048',
     ),
+    'n2-standard-128-32': SystemCharacteristics(
+        'N/A',
+        32,
+        'N/A',
+        'n2-standard-128',
+        1,
+        AcceleratorType['CPU'],
+        'n2-standard-128-32',
+    ),
 }
 """ If you modify UserFacingNameToSystemCharacteristics you should also modify
 the corresponding Map in MaxText/accelerator_to_spec_map.py """
