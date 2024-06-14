@@ -5137,7 +5137,10 @@ def get_volumes(args, system: SystemCharacteristics) -> str:
   """
   volumes = """- emptyDir:
                   medium: Memory
-                name: dshm-2"""
+                name: dshm-2
+              - name: cache
+                csi:
+                  driver: ramdisk.csi.storage.gke.io"""
 
   if (
       system.accelerator_type == AcceleratorType['TPU']
@@ -5160,7 +5163,9 @@ def get_volume_mounts(args, system: SystemCharacteristics) -> str:
       YAML for the volumes mounted within a Pathways container or GPU container as a YAML string.
   """
   volume_mount_yaml = """- mountPath: /dev/shm
-                  name: dshm-2"""
+                  name: dshm-2
+                - mountPath: /test-cache
+                  name: cache"""
 
   if args.use_pathways:
     volume_mount_yaml = """- mountPath: /tmp
