@@ -5018,7 +5018,7 @@ def get_main_container(args, system, docker_image, resource_type) -> str:
 
   gpu_workload_terminate_command = ''
   if system.accelerator_type == AcceleratorType['GPU']:
-    command = 'cd /deps && bash gpu_multi_process_run.sh'
+    command = 'mkdir -p /app && cd /app && gsutil -m cp -r gs://maxtext-experiments-multipod/yangyuwei/maxtext/* /app/ && bash gpu_multi_process_run.sh'
     gpu_workload_terminate_command = (
         'echo Main app is done > /usr/share/workload/workload_terminated; '
     )
