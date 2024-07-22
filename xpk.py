@@ -2708,11 +2708,12 @@ def create_cluster_subnet(args, index) -> int:
     return return_code
   subnet_name = f'{args.cluster}-{zone_to_region(args.zone)}-sub-{index}'
   if subnet_name not in existing_subnet_names:
+    subnet_index = index * 2
     command = (
         f'gcloud compute --project={args.project}'
         f' networks subnets create {subnet_name}'
         f' --network={args.cluster}-net-{index}'
-        f' --region={zone_to_region(args.zone)} --range=192.168.{index}.0/23'
+        f' --region={zone_to_region(args.zone)} --range=192.168.{subnet_index}.0/23'
     )
     return_code = run_command_with_updates(
         command, 'Create Cluster Subnet', args, verbose=False
