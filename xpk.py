@@ -2610,6 +2610,7 @@ def run_gke_cluster_create_command(
         f' --subnetwork="{args.cluster}-{zone_to_region(args.zone)}-sub-0"'
         ' --enable-dataplane-v2 --enable-ip-alias'
         ' --enable-multi-networking --no-enable-autoupgrade'
+        ' --monitoring=DAEMONSET,DEPLOYMENT,HPA,POD,STATEFULSET,STORAGE'
     )
   else:
     command += ' --location-policy=BALANCED --scopes=storage-full,gke-default'
@@ -2711,7 +2712,7 @@ def create_cluster_subnet(args, index) -> int:
         f'gcloud compute --project={args.project}'
         f' networks subnets create {subnet_name}'
         f' --network={args.cluster}-net-{index}'
-        f' --region={zone_to_region(args.zone)} --range=192.168.{index}.0/24'
+        f' --region={zone_to_region(args.zone)} --range=192.168.{index}.0/23'
     )
     return_code = run_command_with_updates(
         command, 'Create Cluster Subnet', args, verbose=False
