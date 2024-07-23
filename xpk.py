@@ -2610,7 +2610,7 @@ def run_gke_cluster_create_command(
         f' --subnetwork="{args.cluster}-{zone_to_region(args.zone)}-sub-0"'
         ' --enable-dataplane-v2 --enable-ip-alias'
         ' --enable-multi-networking --no-enable-autoupgrade'
-        ' --monitoring=DAEMONSET,DEPLOYMENT,HPA,POD,STATEFULSET,STORAGE'
+        ' --monitoring=SYSTEM,DAEMONSET,DEPLOYMENT,HPA,POD,STATEFULSET,STORAGE'
     )
   else:
     command += ' --location-policy=BALANCED --scopes=storage-full,gke-default'
