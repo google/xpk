@@ -178,6 +178,7 @@ spec:
             metadata:
               labels:
                 xpk.google.com/workload: {args.workload}
+                nvidia-devtools-sidecar-injector: enabled
             spec:
               {gpu_scheduler}
               priorityClassName: {args.priority}
@@ -2607,7 +2608,7 @@ def run_gke_cluster_create_command(
   if system.accelerator_type == AcceleratorType['GPU']:
     command += (
         ' --enable-dataplane-v2 --enable-ip-alias'
-        ' --enable-multi-networking --no-enable-autoupgrade'
+        ' --enable-multi-networking' #--no-enable-autoupgrade
     )
   else:
     command += ' --location-policy=BALANCED --scopes=storage-full,gke-default'
@@ -3796,7 +3797,7 @@ def run_gke_node_pool_create_command(
       command += (
           ' --accelerator'
           f' type={system.gke_accelerator},count={str(system.chips_per_vm)},gpu-driver-version=latest'
-          ' --no-enable-autoupgrade '
+          #' --no-enable-autoupgrade '
           ' --scopes="https://www.googleapis.com/auth/cloud-platform"'
           ' --additional-node-network'
           f' network={args.cluster}-net-1,subnetwork={subnet_prefix}-sub-1'
