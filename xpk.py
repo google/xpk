@@ -3495,6 +3495,10 @@ def run_gke_node_pool_create_command(
     f'{args.cluster}-np-{slice_num}' for slice_num in range(args.num_slices)
   ]
 
+  # hard-code reservations and placement policies
+  reservations = ['reservation-1', 'reservation-2']
+  placement_policies = ['placement-policy-1', 'placement-policy-2']
+
   node_pools_to_remain = []
   delete_commands = []
   delete_task_names = []
@@ -3589,7 +3593,8 @@ def run_gke_node_pool_create_command(
 
   create_commands = []
   create_task_names = []
-  for node_pool_name in desired_node_pool_names:
+  for i in range(args.num_slices):
+    node_pool_name = desired_node_pool_names[i]
     if node_pool_name in node_pools_to_remain:
       continue
     command = (
@@ -3641,7 +3646,9 @@ def run_gke_node_pool_create_command(
             ' --additional-node-network'
             f' network={args.cluster}-net-8,subnetwork={subnet_prefix}-sub-8'
             ' --max-pods-per-node=32'
-            f' --placement-policy=gp-{node_pool_name}'
+            ' --reservation-affinity=specific'
+            f' --reservation={reservations[i]}'
+            f' --placement-policy={placement_policies[i]}'
         )
     elif system.accelerator_type == AcceleratorType['CPU']:
       command += f' --num-nodes={system.vms_per_slice}'
