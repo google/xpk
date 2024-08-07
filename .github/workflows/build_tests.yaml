@@ -25,6 +25,10 @@ env:
   WORKLOAD_NAME: xpktest-build-${{ github.run_attempt }}
   PATHWAYS_WORKLOAD_NAME: xpkpw-build-${{ github.run_attempt }}
 
+defaults:
+ run:
+  working-directory: ./xpk
+
 jobs:
   cluster-create-and-delete:
     runs-on: [ubuntu-20.04]
@@ -38,7 +42,7 @@ jobs:
         python-version: '3.10'
     - uses: 'google-github-actions/auth@v2'
       with:
-        credentials_json: '${{ secrets.GCP_SA_KEY }}'
+        credentials_json: '${{ ../secrets.GCP_SA_KEY }}'
     - uses: google-github-actions/setup-gcloud@v2
       with:
         version: '>= 363.0.0'
