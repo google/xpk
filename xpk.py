@@ -1535,7 +1535,7 @@ UserFacingNameToSystemCharacteristics = {
         'v5p-12160',
     ),
     'v5p-12288': SystemCharacteristics(
-        '16x16x24',
+        '8x16x48',
         1536,
         'tpu-v5p-slice',
         'ct5p-hightpu-4t',
