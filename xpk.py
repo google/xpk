@@ -1013,7 +1013,7 @@ UserFacingNameToSystemCharacteristics = {
         'v5p-3968',
     ),
     'v5p-4096': SystemCharacteristics(
-        '8x16x16',
+        '4x8x64',
         512,
         'tpu-v5p-slice',
         'ct5p-hightpu-4t',
@@ -3774,7 +3774,7 @@ def run_gke_node_pool_create_command(
         f' --cluster={args.cluster}'
         f' --project={args.project} --node-locations={args.zone}'
         f' --machine-type={system.gce_machine_type}'
-        f' --host-maintenance-interval={args.host_maintenance_interval}'
+        # f' --host-maintenance-interval={args.host_maintenance_interval}'
         f' {capacity_args}'
         ' --enable-gvnic'
         f' {args.custom_nodepool_arguments}'
