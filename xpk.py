@@ -5005,9 +5005,9 @@ def get_main_container(args, system, docker_image, resource_type) -> str:
     xpk_internal_commands += (
         'set -x;'
         'WORKER_ID=$HOSTNAME;'
-        f'gsutil -m cp -r /tmp/xla_dump/ {args.debug_dump_gcs}/$WORKER_ID;'
-        f'gsutil -m cp /tmp/*.dump {args.debug_dump_gcs}/$WORKER_ID;'
-        f'gsutil -m cp -r /tmp/tpu_logs {args.debug_dump_gcs}/$WORKER_ID;'
+        f'gcloud storage cp -r /tmp/xla_dump/ {args.debug_dump_gcs}/$WORKER_ID;'
+        f'gcloud storage cp /tmp/*.dump {args.debug_dump_gcs}/$WORKER_ID;'
+        f'gcloud storage cp -r /tmp/tpu_logs {args.debug_dump_gcs}/$WORKER_ID;'
     )
 
   command = args.command
