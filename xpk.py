@@ -155,6 +155,21 @@ gpu_scheduler_yaml = """schedulerName: {scheduler_name}
                 {autoprovisioning_args}
               """
 
+# gpu_scheduler_yaml = """schedulerName: {scheduler_name}
+#               affinity:
+#                 nodeAffinity:
+#                   requiredDuringSchedulingIgnoredDuringExecution:
+#                     nodeSelectorTerms:
+#                     - matchExpressions:
+#                       - key: kubernetes.io/hostname                                                               
+#                         operator: In                                                                              
+#                         values: [gke-a3plus-benchmark-a3plus-benchmark-caf334a5-wn3b]
+#               nodeSelector:
+#                 {accelerator_label}
+#                 {machine_label}
+#                 {autoprovisioning_args}
+#               """
+
 
 gpu_workload_create_yaml = """apiVersion: jobset.x-k8s.io/v1alpha2
 kind: JobSet
@@ -178,7 +193,7 @@ spec:
             metadata:
               labels:
                 xpk.google.com/workload: {args.workload}
-                nvidia-devtools-sidecar-injector: enabled
+                {enable_nv_sidecar}
             spec:
               {gpu_scheduler}
               priorityClassName: {args.priority}
@@ -5019,7 +5034,8 @@ def get_main_container(args, system, docker_image, resource_type) -> str:
 
   gpu_workload_terminate_command = ''
   if system.accelerator_type == AcceleratorType['GPU']:
-    command = 'cd /deps && bash gpu_multi_process_run.sh'
+    # command = 'cd /deps && bash gpu_multi_process_run.sh'
+    command = 'mkdir -p /app && cd /app && gsutil -m cp -r gs://maxtext-experiments-multipod/ninacai/maxtext/* /app/ && bash gpu_multi_process_run.sh'
     gpu_workload_terminate_command = (
         'echo Main app is done > /usr/share/workload/workload_terminated; '
     )
@@ -5920,6 +5936,23 @@ def get_autoprovisioning_node_selector_args(args) -> tuple[str, int]:
 
   return node_selector_args, return_code
 
+def enable_nv_sidecar(args):
+  """ Get if nv sidecar injector is enabled.
+
+  Args:
+    args: user provided arguments for running the command.
+    
+  Returns:
+    str: yaml containing nv sidecar injector configuration
+  """
+
+  enable_nv_sidecar_injector = ''
+
+  if args.enable_profile:
+    enable_nv_sidecar_injector = 'nvidia-devtools-sidecar-injector: enabled'
+  
+  return enable_nv_sidecar_injector
+
 
 def get_gpu_scheduler(
     args, system: SystemCharacteristics, autoprovisioning_args: str
@@ -6016,7 +6049,7 @@ def get_gpu_rxdm_image(system: SystemCharacteristics) -> str:
                 image: us-docker.pkg.dev/gce-ai-infra/gpudirect-tcpx/tcpgpudmarxd-dev:v2.0.9"""
   elif system.device_type == h100_mega_device_type:
     gpu_rxdm_image = """- name: fastrak-daemon
-                image: us-docker.pkg.dev/gce-ai-infra/gpudirect-tcpxo/tcpgpudmarxd-dev:v1.0.8"""
+                image: us-docker.pkg.dev/gce-ai-infra/gpudirect-tcpxo/tcpgpudmarxd-dev:v1.0.9"""
   return gpu_rxdm_image
 
 
@@ -6183,6 +6216,7 @@ def workload_create(args) -> None:
         command=args.command,
         chips_per_vm=system.chips_per_vm,
         gpu_scheduler=gpu_scheduler,
+        enable_nv_sidecar=enable_nv_sidecar(args),
         gpu_volume=get_gpu_volume(system),
         gpu_rxdm_image=get_gpu_rxdm_image(system),
         gpu_rxdm_cmd=get_gpu_rxdm_cmd(system),
@@ -7896,6 +7930,14 @@ workload_create_parser_optional_arguments.add_argument(
         'Add this argument to deploy a sidecar container that will '
         'read the stack traces collected in /tmp/debugging directory '
         'and forward them to Cloud Logging for TPU workloads.'
+    ),
+)
+workload_create_parser_optional_arguments.add_argument(
+    '--enable-profile',
+    action='store_true',
+    help=(
+        'Add this argument to deploy a sidecar injector that will '
+        'enable nsys profiling tool to profile the workload. '
     ),
 )
 
