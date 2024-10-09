@@ -14,8 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 """
 
+from argparse import Namespace
 from ..utils import write_tmp_file, xpk_print
-from .commands import run_command_with_updates_retry
+from .commands import run_command_with_updates_retry, run_command_for_value
 from .core import (
     AutoprovisioningConfig,
     create_accelerator_label,
@@ -138,6 +139,21 @@ spec:
         name: {cachekey}
         command: [ "sleep", "inf" ]
 """
+
+
+def verify_kueuectl_installation(args: Namespace) -> int:
+  """Verify if if kueuectl is installed.
+  Args:
+    args: user provided arguments for running the command.
+  Returns:
+    0 if kueuectl installed and error code otherwise.
+  """
+  command = 'kubectl kueue version'
+  task = 'Verify kueuectl installation on cluster'
+  return_code, _ = run_command_for_value(command, task, args)
+  if return_code != 0:
+    xpk_print(f'{task} returned ERROR {return_code}')
+  return return_code
 
 
 def install_kueue_on_cluster(args) -> int:
