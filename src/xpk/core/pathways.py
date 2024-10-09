@@ -60,7 +60,9 @@ def get_pathways_proxy_args(args) -> str:
   """
   yaml = """- --server_port=38676
               - --resource_manager_address={rm_address}
-              - --gcs_scratch_location={args.pathways_gcs_location}"""
+              - --gcs_scratch_location={args.pathways_gcs_location}
+              - --pathways_experimental_enable_cross_worker_transfer_scheduler_ops=true
+              - --pathways_experimental_require_scheduler_dispatch=true"""
 
   if args.use_pathways:
     return yaml.format(args=args, rm_address=get_rm_address(args))
